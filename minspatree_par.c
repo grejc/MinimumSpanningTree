@@ -1,4 +1,5 @@
 #include <linux/sysinfo.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -185,9 +186,29 @@ int main(int argc, char **argv) {
     logging(__rank, "INFO", "Offset calculated. START: %u | END: %u | N: %u", read_start, read_end, my_edges);
 
     MPI_File fh;
+    MPI_Offset offset;
+    logging(__rank, "INFO", "MPI opening file: %s", _input);
     MPI_File_open(MPI_COMM_WORLD, _input, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
+    logging(__rank, "INFO", "MPI file opened");
     
+    logging(__rank, "INFO", "MPI Finding offset position");
+    MPI_File_get_position(fh, &offset);
+    MPI_File_seek(fh, offset * (read_start / sizeof(edge_t)), MPI_SEEK_SET);
+    logging(__rank, "INFO", "MPI Setup offset complete");
+    
+    size_t max_items_to_allocate = -1;
+    if((max_items_to_allocate = can_allocate(my_edges, sizeof(edge_t)))){
+        logging(__rank, "INFO", "Can allocate itens: %u", max_items_to_allocate == 1 ? my_edges : max_items_to_allocate);
+        edge_t *E = malloc((max_items_to_allocate == 1 ? my_edges : max_items_to_allocate) * sizeof(edge_t));
+        test(E);
+        logging(__rank, "INFO", "Memory to edges allocated successfully");
 
+        logging(__rank, "INFO", "Free edges");
+        free(E);
+    } else {
+        logging(__rank, "ERROR", "Not enough memory");
+    }
+    
     // ----------------------------------------------------------------------------------------------------------------
     
 
@@ -195,8 +216,11 @@ int main(int argc, char **argv) {
     // ----------------------------------------------------------------------------------------------------------------
     //  C L E A N   M E M O R Y
     // ----------------------------------------------------------------------------------------------------------------
-    
+    logging(__rank, "INFO", "Closing MPI File");
+    MPI_File_close(&fh);
+    logging(__rank, "INFO", "Stopping service");
     MPI_Finalize();
+    logging(__rank, "INFO", "Finale muchacho");
     return 0;
 }
 
@@ -293,14 +317,18 @@ int can_allocate(size_t _len, size_t _size) {
     
     get_memory_stats(&sms);
     
-    size_t used_after_allocate = (_size * _len) + sms.used;
-    size_t eighty_of_total = sms.total * 0.8;
+    int32_t t = sms.total * 0.8;
+    int32_t n = (t - sms.used) / _size;
     
-    if (used_after_allocate < eighty_of_total) {
-        return 1;
+
+    if ( _len * _size <= n ){
+        return 1; // Okay, you can allocate that
+    }
+    else if (n > 0){
+        return n; // Damn, you so unluck, but you can allocate that
     }
     
-    return 0;
+    return 0; // OMG, do you colou chiclete na cruz nigga? You cant allocate nothing
 }
 
 void logging(int _rank, const char* _level, const char *_fmt, ...){
