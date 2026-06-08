@@ -164,17 +164,17 @@ int main(int argc, char **argv) {
                 
             }
         }
+        if (__rank == 0) logging(__rank, "SEND - INFO", "Sending vertex and edges to other nodes");
+        else logging(__rank, "RECV - INFO", "Receiving info from rank 0");
+        MPI_Bcast(&vertex, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&edges, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+    
+        if (__rank == 0) logging(__rank, "SEND - INFO", "Sended");
+        else logging(__rank, "RECV - INFO", "Received vertex(%u) and edges(%u)", vertex, edges);
     } else {
-        if (__rank == 0) vertex = 10000000, edges = 800000000;
+        vertex = 10000000, edges = 800000000;
+        logging(__rank, "INFO", "Setting the giant dataset vertex(%u) and edges(%u)", vertex, edges);    
     }
-
-    if (__rank == 0) logging(__rank, "SEND - INFO", "Sending vertex and edges to other nodes");
-    else logging(__rank, "RECV - INFO", "Receiving info from rank 0");
-    MPI_Bcast(&vertex, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&edges, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-
-    if (__rank == 0) logging(__rank, "SEND - INFO", "Sended");
-    else logging(__rank, "RECV - INFO", "Received vertex(%u) and edges(%u)", vertex, edges);
 
     logging(__rank, "INFO", "Calculating the read offset");
     uint32_t base = edges / __size;
@@ -203,37 +203,37 @@ int main(int argc, char **argv) {
 void critical_error_logger(int _signal){
     switch ( _signal ){
         case SIGSEGV: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "CODE FAILURE...SEGMENTATION VIOLATION (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "CODE FAILURE...SEGMENTATION VIOLATION (CORE DUMP)\n\n");
         } break;
         case SIGFPE: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "CODE FAILURE...FLOATING-POINT EXCEPTION (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "CODE FAILURE...FLOATING-POINT EXCEPTION (CORE DUMP)\n\n");
         } break;
         case SIGILL: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "ILLEGAL INSTRUCTION (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "ILLEGAL INSTRUCTION (CORE DUMP)\n\n");
         } break;
         case SIGBUS: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "BUS ERROR (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "BUS ERROR (CORE DUMP)\n\n");
         } break;
         case SIGINT: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINAL INTERRUPT");
+            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINAL INTERRUPT\n\n");
         } break;
         case SIGTERM: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINATION SIGNAL");
+            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINATION SIGNAL\n\n");
         } break;
         case SIGQUIT: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINAL QUIT (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "TERMINAL QUIT (CORE DUMP)\n\n");
         } break;
         case SIGABRT: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "ABORT SIGNAL (CORE DUMP)");
+            logging(*_log_error_rank, "CRITICAL ERROR", "ABORT SIGNAL (CORE DUMP)\n\n");
         } break;
         case SIGHUP: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "HANGUP");
+            logging(*_log_error_rank, "CRITICAL ERROR", "HANGUP\n\n");
         } break;
         case SIGCHLD: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "CHILD STATUS CHANGED");
+            logging(*_log_error_rank, "CRITICAL ERROR", "CHILD STATUS CHANGED\n\n");
         } break;
         case SIGPIPE: {
-            logging(*_log_error_rank, "CRITICAL ERROR", "BROKEN PIPE");
+            logging(*_log_error_rank, "CRITICAL ERROR", "BROKEN PIPE\n\n");
         } break;
     }
 }
