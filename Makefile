@@ -9,7 +9,7 @@ TARGET_SEQ = minspatree_seq.out
 TARGET_PAR = minspatree_par.out
 
 SEQ_FLAGS = -Wall -O3 -I.
-MPI_INCLUDE_TYPE := $(shell echo '#include <mpi/mpi.h>' | $(MPICC) -E -x c - >/dev/null 2>&1 && echo "DEFAULT" || echo "FALLBACK")
+MPI_INCLUDE_TYPE := $(shell [ "$$(whoami)" = "rgm42426" ] && echo "FALLBACK" || echo "DEFAULT")
 PAR_FLAGS = -DGREJC_SETUP_MPI_$(MPI_INCLUDE_TYPE) -Wall -O3 -I.
 LDFLAGS =
 
