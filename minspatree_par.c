@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &__rank);
     MPI_Comm_size(MPI_COMM_WORLD, &__size);
     
-    logging(__rank, "INFO", "Program started ------------------");
+    logging(__rank, "INFO", "Program started -------------------------------------------");
 
     // ----------------------------------------------------------------------------------------------------------------
     // P A R S I N G   A R G U M E N T S
@@ -186,14 +186,12 @@ int main(int argc, char **argv) {
     logging(__rank, "INFO", "Offset calculated. START: %u | END: %u | N: %u", read_start, read_end, my_edges);
 
     MPI_File fh;
-    MPI_Offset offset;
     logging(__rank, "INFO", "MPI opening file: %s", _input);
     MPI_File_open(MPI_COMM_WORLD, _input, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
     logging(__rank, "INFO", "MPI file opened");
     
     logging(__rank, "INFO", "MPI Finding offset position");
-    MPI_File_get_position(fh, &offset);
-    MPI_File_seek(fh, offset * (read_start / sizeof(edge_t)), MPI_SEEK_SET);
+    MPI_File_seek(fh, read_start * sizeof(edge_t), MPI_SEEK_SET);
     logging(__rank, "INFO", "MPI Setup offset complete");
     
     size_t max_items_to_allocate = -1;
@@ -202,6 +200,11 @@ int main(int argc, char **argv) {
         edge_t *E = malloc((max_items_to_allocate == 1 ? my_edges : max_items_to_allocate) * sizeof(edge_t));
         test(E);
         logging(__rank, "INFO", "Memory to edges allocated successfully");
+        logging(__rank, "INFO", "Setting edges from file to memory");
+        MPI_File_read_all(fh, E, my_edges * sizeof(edge_t), MPI_BYTE, MPI_STATUS_IGNORE);
+        logging(__rank, "INFO", "Setting edges from file to memory completed");
+
+        logging(__rank, "INFO", "First edge: u(%u) v(%u) w(%.9f)", E[0].src, E[0].dest, E[0].weight);
 
         logging(__rank, "INFO", "Free edges");
         free(E);
