@@ -116,9 +116,9 @@ void dsu_unite(dsu_t *dsu, int32_t i, int32_t j);
 #else /* USING_MPI */
 
 typedef struct edge_s {
-  int32_t src;
-  int32_t dest;
-  double_t weight;
+  uint32_t src;
+  uint32_t dst;
+  double w;
 } edge_t;
 
 void setup_index_components_vector(uint32_t **_V, uint32_t _n);
