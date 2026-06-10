@@ -283,7 +283,9 @@ int main(int argc, char **argv) {
         logging(__rank, INFO, "Memory to edges allocated successfully on %p", (void*)E);
         logging(__rank, INFO, "Setting edges from file to memory");
         MPI_File_read_at_all(fh, start_r, E, my_edges, MPI_EDGE_T, &read_status);
-        logging(__rank, INFO, "Setting edges from file to memory completed with '_ucount' status %u", read_status._ucount);
+        int count;
+        MPI_Get_count(&read_status, MPI_EDGE_T, &count);
+        logging(__rank, INFO, "Setting edges from file to memory completed with count %d", count);
 
         logging(__rank, INFO, "First edge: u(%u) v(%u) w(%.9f)", E[0].src, E[0].dst, E[0].w);
 
@@ -321,7 +323,7 @@ int main(int argc, char **argv) {
 
                 logging(__rank, INFO, "Executing local search...");
                 // LOCAL SEARCH
-                for (size_t i = _start; i < _end; ++i){
+                for (size_t i = 0; i < my_edges; ++i){
                     uint32_t component_edge_u = INDEX_V2C[E[i].src];
                     uint32_t component_edge_v = INDEX_V2C[E[i].dst];
 
