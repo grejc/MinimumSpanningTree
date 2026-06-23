@@ -412,85 +412,123 @@ int main(int argc, char **argv) {
 
   int io_success = 1;
   FILE *fbin = NULL;
+  edge_t *chunk_buf = NULL;
+  uint32_t chunk_capacity = 10000000; // 10M arestas (~160 MB)
+
   if (RANK == 0) {
     fbin = fopen(bin_path, "rb");
     if (!fbin) {
       logging(RANK, ERROR, "Falha ao abrir arquivo binario: %s", bin_path);
       print_error("Erro de Arquivo", "Rank 0: Nao foi possivel abrir o arquivo binario", NULL, -1);
       io_success = 0;
+    } else {
+      if (my_edges > 0) {
+        edges_to_process = malloc(sizeof(edge_t) * my_edges);
+        if (!edges_to_process) {
+          logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas do Rank 0 (%u arestas)", my_edges);
+          io_success = 0;
+        }
+      }
+      
+      // Verifica se algum outro rank precisa receber dados
+      bool need_chunk_buf = false;
+      for (int i = 1; i < SIZE; ++i) {
+        if (send_counts[i] > 0) {
+          need_chunk_buf = true;
+          break;
+        }
+      }
+      
+      if (need_chunk_buf && io_success) {
+        chunk_buf = malloc(sizeof(edge_t) * chunk_capacity);
+        if (!chunk_buf) {
+          logging(RANK, ERROR, "Erro ao alocar buffer temporario de chunk no Rank 0");
+          io_success = 0;
+        }
+      }
+    }
+  } else {
+    if (my_edges > 0) {
+      edges_to_process = malloc(sizeof(edge_t) * my_edges);
+      if (!edges_to_process) {
+        logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais no Rank %d (%u arestas)", RANK, my_edges);
+        io_success = 0;
+      }
     }
   }
 
-  MPI_Bcast(&io_success, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  if (!io_success) {
+  // Sincroniza o status de inicializacao do I/O
+  int global_io_init_success = 0;
+  MPI_Allreduce(&io_success, &global_io_init_success, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
+  
+  if (!global_io_init_success) {
     if (RANK == 0) {
+      if (fbin) fclose(fbin);
+      if (chunk_buf) free(chunk_buf);
       free(send_counts);
       free(displs);
     }
+    if (edges_to_process) free(edges_to_process);
     MPI_Finalize();
     return 1;
   }
 
-  edges_to_process = NULL;
   if (RANK == 0) {
+    // Rank 0 le seus dados locais primeiro
     if (my_edges > 0) {
-      edges_to_process = malloc(sizeof(edge_t) * my_edges);
-      if (!edges_to_process) {
-        logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais (%u arestas)", my_edges);
+      size_t read_bytes = fread(edges_to_process, sizeof(edge_t), my_edges, fbin);
+      if (read_bytes != my_edges) {
+        logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank 0");
         io_success = 0;
-      } else {
-        size_t read_bytes = fread(edges_to_process, sizeof(edge_t), my_edges, fbin);
-        if (read_bytes != my_edges) {
-          logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank 0");
-          io_success = 0;
-        }
       }
     }
 
-    // Leitura e envio das arestas para os demais ranks
-    for (int i = 1; i < SIZE; ++i) {
+    // Leitura e envio das arestas para os demais ranks usando chunks
+    for (int i = 1; i < SIZE && io_success; ++i) {
       uint32_t count = send_counts[i];
-      if (count > 0) {
-        edge_t *temp_buf = malloc(sizeof(edge_t) * count);
-        if (!temp_buf) {
-          logging(RANK, ERROR, "Erro ao alocar buffer temporario para envio ao Rank %d", i);
+      uint32_t remaining = count;
+      uint32_t sent = 0;
+      while (remaining > 0 && io_success) {
+        uint32_t current_chunk = (remaining < chunk_capacity) ? remaining : chunk_capacity;
+        size_t read_bytes = fread(chunk_buf, sizeof(edge_t), current_chunk, fbin);
+        if (read_bytes != current_chunk) {
+          logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank %d no offset de chunk", i);
           io_success = 0;
-        } else {
-          size_t read_bytes = fread(temp_buf, sizeof(edge_t), count, fbin);
-          if (read_bytes != count) {
-            logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank %d", i);
-            io_success = 0;
-          }
-
-          logging(RANK, SEND, "Enviando %u arestas para o Rank %d", count, i);
-          MPI_Send(temp_buf, count, MPI_EDGE_T, i, 1, MPI_COMM_WORLD);
-          free(temp_buf);
+          break;
         }
+
+        logging(RANK, SEND, "Enviando chunk de %u arestas para o Rank %d (restantes: %u)", current_chunk, i, remaining - current_chunk);
+        MPI_Send(chunk_buf, current_chunk, MPI_EDGE_T, i, 1, MPI_COMM_WORLD);
+        remaining -= current_chunk;
+        sent += current_chunk;
       }
     }
 
+    if (chunk_buf) {
+      free(chunk_buf);
+    }
     if (fbin) {
       fclose(fbin);
     }
-
     free(send_counts);
     free(displs);
   } else {
-    // Ranks > 0 recebem suas arestas do Rank 0
+    // Ranks > 0 recebem suas arestas do Rank 0 em chunks
     if (my_edges > 0) {
-      edges_to_process = malloc(sizeof(edge_t) * my_edges);
-      if (!edges_to_process) {
-        logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais (%u arestas)", my_edges);
-        io_success = 0;
-      } else {
-        logging(RANK, RECV, "Aguardando recebimento de %u arestas do Rank 0", my_edges);
-        MPI_Recv(edges_to_process, my_edges, MPI_EDGE_T, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        logging(RANK, RECV, "Recebidas %u arestas do Rank 0 com sucesso", my_edges);
+      uint32_t remaining = my_edges;
+      uint32_t received = 0;
+      while (remaining > 0) {
+        uint32_t current_chunk = (remaining < chunk_capacity) ? remaining : chunk_capacity;
+        logging(RANK, RECV, "Aguardando recebimento de chunk de %u arestas do Rank 0 (restantes: %u)", current_chunk, remaining);
+        MPI_Recv(edges_to_process + received, current_chunk, MPI_EDGE_T, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        logging(RANK, RECV, "Recebido chunk de %u arestas do Rank 0 com sucesso", current_chunk);
+        remaining -= current_chunk;
+        received += current_chunk;
       }
     }
   }
 
-  // Verifica globalmente se todos os passos de I/O e alocacao deram certo
+  // Verifica se a leitura em si ocorreu com sucesso
   int global_io_success = 0;
   MPI_Allreduce(&io_success, &global_io_success, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
   if (!global_io_success) {
@@ -948,14 +986,21 @@ int can_allocate(size_t _len, size_t _size) {
 
   get_memory_stats(&sms);
 
-  int32_t t = sms.total * 0.8;
-  int32_t n = (t - sms.used) / _size;
+  uint64_t t = sms.total * 0.8;
+  uint64_t free_mem = (t > sms.used) ? (t - sms.used) : 0;
+  uint64_t n = free_mem / _size;
   size_t cost = _len * _size;
 
-  if (cost <= (uint64_t)n) {
-    return _len;
+  if (cost <= n) {
+    if (_len > 2147483647) {
+      return 2147483647;
+    }
+    return (int)_len;
   } else if (n > 0) {
-    return n;
+    if (n > 2147483647) {
+      return 2147483647;
+    }
+    return (int)n;
   }
 
   return 0; // OMG, do you colou chiclete na cruz nigga? You cant allocate
