@@ -61,11 +61,16 @@ int main(int argc, char **argv) {
     FILE *fbin = fopen(bin_path, "wb");
     if (!fbin) { perror("fopen bin"); return 1; }
 
-    double range = (double)(w_max - w_min);
+    double divisor = 1.0;
+    if (w_max > 0) {
+        while (divisor <= w_max) {
+            divisor *= 10.0;
+        }
+    }
     for (int i = 0; i < n_edges; i++) {
         int32_t src = srcs[i];
         int32_t dst = dests[i];
-        double w_norm = (range > 0.0) ? (double)(weights[i] - w_min) / range : 0.0;
+        double w_norm = (double)weights[i] / divisor;
         fwrite(&src, sizeof(int32_t), 1, fbin);
         fwrite(&dst, sizeof(int32_t), 1, fbin);
         fwrite(&w_norm, sizeof(double), 1, fbin);

@@ -198,10 +198,10 @@ static inline term_dim_t _get_terminal_dimensions() {
   do {                                                                         \
     FILE *_ps_stream = (output_stream);                                        \
     if (_ps_stream == NULL)                                                    \
-      fprintf(stdout, "[%sSUCCESS%s]{%sLINE \u2192 %d%s}:\n\t%s%s%s\n",       \
-              TERMINAL_COLOR_GREEN, TERMINAL_COLOR_RESET,                      \
-              TERMINAL_COLOR_BLUE, __LINE__, TERMINAL_COLOR_RESET,             \
-              TERMINAL_COLOR_GREEN, message, TERMINAL_COLOR_RESET);            \
+      fprintf(stdout, "[%sSUCCESS%s]{%sLINE \u2192 %d%s}:\n\t%s%s%s\n",        \
+              TERMINAL_COLOR_GREEN, TERMINAL_COLOR_RESET, TERMINAL_COLOR_BLUE, \
+              __LINE__, TERMINAL_COLOR_RESET, TERMINAL_COLOR_GREEN, message,   \
+              TERMINAL_COLOR_RESET);                                           \
     else                                                                       \
       fprintf(_ps_stream, "[SUCCESS]{LINE \u2192 %d}:\n\t%s\n", __LINE__,      \
               message);                                                        \
@@ -211,10 +211,9 @@ static inline term_dim_t _get_terminal_dimensions() {
   do {                                                                         \
     FILE *_ps_stream = (output_stream);                                        \
     if (_ps_stream == NULL) {                                                  \
-      fprintf(stdout, "[%sSUCCESS%s]{%sLINE \u2192 %d%s}:\n\t%s",             \
-              TERMINAL_COLOR_GREEN, TERMINAL_COLOR_RESET,                      \
-              TERMINAL_COLOR_BLUE, __LINE__, TERMINAL_COLOR_RESET,             \
-              TERMINAL_COLOR_GREEN);                                           \
+      fprintf(stdout, "[%sSUCCESS%s]{%sLINE \u2192 %d%s}:\n\t%s",              \
+              TERMINAL_COLOR_GREEN, TERMINAL_COLOR_RESET, TERMINAL_COLOR_BLUE, \
+              __LINE__, TERMINAL_COLOR_RESET, TERMINAL_COLOR_GREEN);           \
       fprintf(stdout, fmt, __VA_ARGS__);                                       \
       fprintf(stdout, "%s\n", TERMINAL_COLOR_RESET);                           \
     } else {                                                                   \
