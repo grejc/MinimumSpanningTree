@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
                 "Algoritmo Paralelo (MPI) para calcular a Arvore Geradora Minima (MST)");
       argp_add_option(&ap, 'v', "verbose", "LEVEL", "Nivel de verbosidade: 0 (quiet), 1 (normal), 2 (debug/verbose)", "1");
       argp_add_pos(&ap, "input", "Caminho do arquivo binario de entrada", 1);
-      
+
       if (version_requested) {
         printf("JoseCarlos_RGM42426_AGMpar 1.1.0\n");
       } else {
@@ -210,32 +210,37 @@ int main(int argc, char **argv) {
 
   logging(RANK, INFO, "Iniciando leitura de metadados");
   if (RANK == 0) {
-    char meta_path[1024];
-    size_t len = strlen(bin_path);
-    if (len > 4 && strcmp(bin_path + len - 4, ".bin") == 0) {
-      strncpy(meta_path, bin_path, len - 4);
-      meta_path[len - 4] = '\0';
-      strcat(meta_path, ".meta.txt");
-    } else {
-      snprintf(meta_path, sizeof(meta_path), "%s.meta.txt", bin_path);
-    }
-
-    logging(RANK, INFO, "Caminho do metadado calculado: %s", meta_path);
-    FILE *fp = fopen(meta_path, "r");
-    if (!fp) {
-      logging(RANK, ERROR, "Erro ao abrir arquivo de metadados: %s", meta_path);
-      print_error("Erro de Arquivo", "Rank 0: Erro ao abrir arquivo de metadados", NULL, -1);
-    } else {
-      if (fscanf(fp, "%u\n%u", &vertex_len, &edges_len) != 2) {
-        logging(RANK, ERROR, "Erro ao ler formato de metadados em %s", meta_path);
-        print_error("Erro de Formatacao", "Rank 0: Erro ao ler metadados", NULL, -1);
-        vertex_len = 0;
-        edges_len = 0;
+      if (strstr(bin_path, "graph.bin") != NULL) {
+          vertex_len = 10000000, edges_len = 800000000;
+          logging(RANK, INFO, "Grafo paralelos gigante");
       } else {
-        logging(RANK, INFO, "Metadados carregados: %u vertices, %u arestas", vertex_len, edges_len);
+        char meta_path[1024];
+        size_t len = strlen(bin_path);
+        if (len > 4 && strcmp(bin_path + len - 4, ".bin") == 0) {
+        strncpy(meta_path, bin_path, len - 4);
+        meta_path[len - 4] = '\0';
+        strcat(meta_path, ".meta.txt");
+        } else {
+        snprintf(meta_path, sizeof(meta_path), "%s.meta.txt", bin_path);
+        }
+    
+        logging(RANK, INFO, "Caminho do metadado calculado: %s", meta_path);
+        FILE *fp = fopen(meta_path, "r");
+        if (!fp) {
+        logging(RANK, ERROR, "Erro ao abrir arquivo de metadados: %s", meta_path);
+        print_error("Erro de Arquivo", "Rank 0: Erro ao abrir arquivo de metadados", NULL, -1);
+        } else {
+        if (fscanf(fp, "%u\n%u", &vertex_len, &edges_len) != 2) {
+            logging(RANK, ERROR, "Erro ao ler formato de metadados em %s", meta_path);
+            print_error("Erro de Formatacao", "Rank 0: Erro ao ler metadados", NULL, -1);
+            vertex_len = 0;
+            edges_len = 0;
+        } else {
+            logging(RANK, INFO, "Metadados carregados: %u vertices, %u arestas", vertex_len, edges_len);
+        }
+        fclose(fp);
+        } 
       }
-      fclose(fp);
-    }
   }
 
   // Compartilha o número de vértices e arestas com todos os ranks
@@ -324,7 +329,7 @@ int main(int argc, char **argv) {
   }
 
   logging(RANK, INFO, "Carga de trabalho atribuida: %u arestas (offset %u)", my_edges, start_idx);
-  
+
   // Captura o término da fase de Setup e Load Balancing
   gettimeofday(&t_meta_lb, NULL);
 
