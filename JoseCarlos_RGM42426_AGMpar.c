@@ -262,16 +262,26 @@ int main(int argc, char **argv) {
   logging(RANK, INFO, "Iniciando balanceamento de carga baseado na capacidade de memoria");
   struct sys_mem_stats sms;
   get_memory_stats(&sms);
-  uint64_t local_capacity = (sms.total * 0.8 > sms.used) ? (sms.total * 0.8 - sms.used) : 0;
-  logging(RANK, INFO, "Memoria do sistema local: Total=%lu, Usado=%lu, Disponivel=%lu, CapacidadeCalculada=%lu",
-          sms.total, sms.used, sms.free, local_capacity);
 
-  // Compartilha a capacidade de memória disponível de cada nó
   uint64_t *all_capacities = NULL;
   if (RANK == 0) {
     all_capacities = malloc(SIZE * sizeof(uint64_t));
+    uint64_t local_capacity = (sms.total * 0.8 > sms.used) ? (sms.total * 0.8 - sms.used) : 0;
+    all_capacities[0] = local_capacity;
+
+    for (int i = 1; i < SIZE; ++i) {
+      struct sys_mem_stats remote_sms;
+      MPI_Recv(&remote_sms, sizeof(struct sys_mem_stats), MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      uint64_t remote_capacity = (remote_sms.total * 0.8 > remote_sms.used) ? (remote_sms.total * 0.8 - remote_sms.used) : 0;
+      all_capacities[i] = remote_capacity;
+      logging(RANK, INFO, "Recebido dados de memoria do Rank %d: Total=%lu, Usado=%lu, Disponivel=%lu, CapacidadeCalculada=%lu",
+              i, remote_sms.total, remote_sms.used, remote_sms.free, remote_capacity);
+    }
+  } else {
+    logging(RANK, INFO, "Enviando dados de memoria ao Rank 0: Total=%lu, Usado=%lu, Disponivel=%lu",
+            sms.total, sms.used, sms.free);
+    MPI_Send(&sms, sizeof(struct sys_mem_stats), MPI_BYTE, 0, 0, MPI_COMM_WORLD);
   }
-  MPI_Gather(&local_capacity, 1, MPI_UINT64_T, all_capacities, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
 
   uint32_t start_idx = 0;
   uint32_t *send_counts = NULL;
@@ -279,54 +289,116 @@ int main(int argc, char **argv) {
   if (RANK == 0) {
     send_counts = malloc(SIZE * sizeof(uint32_t));
     displs = malloc(SIZE * sizeof(uint32_t));
+    memset(send_counts, 0, SIZE * sizeof(uint32_t));
 
-    uint64_t total_capacity = 0;
+    uint64_t fixed_memory = 2 * (uint64_t)vertex_len * sizeof(component_t);
+    uint32_t *max_edges = malloc(SIZE * sizeof(uint32_t));
+    bool *active = malloc(SIZE * sizeof(bool));
+    
+    uint64_t total_max_edges = 0;
     for (int i = 0; i < SIZE; ++i) {
-      total_capacity += all_capacities[i];
+      uint64_t cap = all_capacities[i];
+      if (cap > fixed_memory) {
+        max_edges[i] = (cap - fixed_memory) / sizeof(edge_t);
+      } else {
+        max_edges[i] = 0;
+      }
+      total_max_edges += max_edges[i];
+      active[i] = true;
     }
-    logging(RANK, INFO, "Capacidade de memoria total agregada de todos os ranks: %lu", total_capacity);
+    logging(RANK, INFO, "Capacidade de arestas max por rank calculada. Total max: %lu", total_max_edges);
 
-    if (total_capacity == 0) {
-      logging(RANK, WARNING, "Capacidade de memoria total e 0. Usando divisao estatica uniforme.");
-      // Divisão estática padrão se ninguém puder estimar
-      uint32_t base = edges_len / SIZE;
-      uint32_t rem = edges_len % SIZE;
-      uint32_t current_displ = 0;
-      for (int i = 0; i < SIZE; ++i) {
-        send_counts[i] = base + ((uint32_t)i < rem ? 1 : 0);
-        displs[i] = current_displ;
-        current_displ += send_counts[i];
+    uint32_t remaining_edges = edges_len;
+
+    if (total_max_edges < edges_len) {
+      logging(RANK, WARNING, "Capacidade de memoria total insuficiente (%lu edges limit, needed %u). Usando divisao proporcional.", total_max_edges, edges_len);
+      if (total_max_edges == 0) {
+        uint32_t base = edges_len / SIZE;
+        uint32_t rem = edges_len % SIZE;
+        for (int i = 0; i < SIZE; ++i) {
+          send_counts[i] = base + ((uint32_t)i < rem ? 1 : 0);
+        }
+      } else {
+        uint32_t edges_assigned = 0;
+        for (int i = 0; i < SIZE; ++i) {
+          double ratio = (double)max_edges[i] / total_max_edges;
+          send_counts[i] = (uint32_t)(ratio * edges_len);
+          edges_assigned += send_counts[i];
+        }
+        uint32_t rem_edges = edges_len - edges_assigned;
+        for (uint32_t i = 0; i < rem_edges; ++i) {
+          send_counts[i % SIZE]++;
+        }
       }
     } else {
-      // Distribuição proporcional ao limite de memória livre
-      uint32_t edges_assigned = 0;
-      uint32_t current_displ = 0;
-      for (int i = 0; i < SIZE; ++i) {
-        double ratio = (double)all_capacities[i] / total_capacity;
-        send_counts[i] = (uint32_t)(ratio * edges_len);
-        edges_assigned += send_counts[i];
-      }
-      // Ajuste de resíduos devido ao truncamento
-      uint32_t rem_edges = edges_len - edges_assigned;
-      for (uint32_t i = 0; i < rem_edges; ++i) {
-        send_counts[i % SIZE]++;
-      }
-      for (int i = 0; i < SIZE; ++i) {
-        displs[i] = current_displ;
-        current_displ += send_counts[i];
+      while (remaining_edges > 0) {
+        int active_count = 0;
+        for (int i = 0; i < SIZE; ++i) {
+          if (active[i]) active_count++;
+        }
+        
+        if (active_count == 0) {
+          for (int i = 0; i < SIZE && remaining_edges > 0; ++i) {
+            send_counts[i]++;
+            remaining_edges--;
+          }
+          break;
+        }
+        
+        uint32_t base_share = remaining_edges / active_count;
+        uint32_t rem = remaining_edges % active_count;
+        
+        if (base_share == 0) {
+          for (int i = 0; i < SIZE && remaining_edges > 0; ++i) {
+            if (active[i]) {
+              send_counts[i]++;
+              remaining_edges--;
+              if (send_counts[i] >= max_edges[i]) {
+                active[i] = false;
+              }
+            }
+          }
+          break;
+        }
+        
+        uint32_t distributed_this_turn = 0;
+        for (int i = 0; i < SIZE; ++i) {
+          if (active[i]) {
+            uint32_t current_share = base_share;
+            if (rem > 0) {
+              current_share++;
+              rem--;
+            }
+            
+            if (send_counts[i] + current_share >= max_edges[i]) {
+              uint32_t allowed = max_edges[i] - send_counts[i];
+              send_counts[i] = max_edges[i];
+              active[i] = false;
+              distributed_this_turn += allowed;
+            } else {
+              send_counts[i] += current_share;
+              distributed_this_turn += current_share;
+            }
+          }
+        }
+        remaining_edges -= distributed_this_turn;
       }
     }
+    
+    uint32_t current_displ = 0;
+    for (int i = 0; i < SIZE; ++i) {
+      displs[i] = current_displ;
+      current_displ += send_counts[i];
+    }
+    
+    free(max_edges);
+    free(active);
     free(all_capacities);
   }
 
   // Distribui a carga calculada
   MPI_Scatter(send_counts, 1, MPI_UINT32_T, &my_edges, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
   MPI_Scatter(displs, 1, MPI_UINT32_T, &start_idx, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-
-  if (RANK == 0) {
-    free(send_counts);
-    free(displs);
-  }
 
   logging(RANK, INFO, "Carga de trabalho atribuida: %u arestas (offset %u)", my_edges, start_idx);
 
@@ -336,49 +408,100 @@ int main(int argc, char **argv) {
   //=========================================================================
   //===                  LEITURA DE ARQUIVO & ORDENAÇÃO                    ===
   //=========================================================================
-  logging(RANK, INFO, "Abrindo arquivo binario para leitura paralela via MPI-IO: %s", bin_path);
-  MPI_File fh;
-  int mpi_err = MPI_File_open(MPI_COMM_WORLD, bin_path, MPI_MODE_RDONLY,
-                              MPI_INFO_NULL, &fh);
-  if (mpi_err != MPI_SUCCESS) {
-    logging(RANK, ERROR, "Falha ao abrir arquivo binario: %s", bin_path);
+  logging(RANK, INFO, "Abrindo arquivo binario para leitura no Rank 0: %s", bin_path);
+
+  int io_success = 1;
+  FILE *fbin = NULL;
+  if (RANK == 0) {
+    fbin = fopen(bin_path, "rb");
+    if (!fbin) {
+      logging(RANK, ERROR, "Falha ao abrir arquivo binario: %s", bin_path);
+      print_error("Erro de Arquivo", "Rank 0: Nao foi possivel abrir o arquivo binario", NULL, -1);
+      io_success = 0;
+    }
+  }
+
+  MPI_Bcast(&io_success, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (!io_success) {
     if (RANK == 0) {
-      print_error("Erro de MPI_File_open", "Nao foi possivel abrir o arquivo binario", NULL, -1);
+      free(send_counts);
+      free(displs);
     }
     MPI_Finalize();
     return 1;
   }
 
-  edges_to_process = malloc(sizeof(edge_t) * my_edges);
-  if (!edges_to_process) {
-    logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais (%u arestas)", my_edges);
-    if (RANK == 0) {
-      print_error("Erro de Alocacao", "Falha na alocacao de memoria para as arestas locais", NULL, -1);
+  edges_to_process = NULL;
+  if (RANK == 0) {
+    if (my_edges > 0) {
+      edges_to_process = malloc(sizeof(edge_t) * my_edges);
+      if (!edges_to_process) {
+        logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais (%u arestas)", my_edges);
+        io_success = 0;
+      } else {
+        size_t read_bytes = fread(edges_to_process, sizeof(edge_t), my_edges, fbin);
+        if (read_bytes != my_edges) {
+          logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank 0");
+          io_success = 0;
+        }
+      }
     }
-    MPI_File_close(&fh);
+
+    // Leitura e envio das arestas para os demais ranks
+    for (int i = 1; i < SIZE; ++i) {
+      uint32_t count = send_counts[i];
+      if (count > 0) {
+        edge_t *temp_buf = malloc(sizeof(edge_t) * count);
+        if (!temp_buf) {
+          logging(RANK, ERROR, "Erro ao alocar buffer temporario para envio ao Rank %d", i);
+          io_success = 0;
+        } else {
+          size_t read_bytes = fread(temp_buf, sizeof(edge_t), count, fbin);
+          if (read_bytes != count) {
+            logging(RANK, ERROR, "Erro de leitura no arquivo binario para o Rank %d", i);
+            io_success = 0;
+          }
+
+          logging(RANK, SEND, "Enviando %u arestas para o Rank %d", count, i);
+          MPI_Send(temp_buf, count, MPI_EDGE_T, i, 1, MPI_COMM_WORLD);
+          free(temp_buf);
+        }
+      }
+    }
+
+    if (fbin) {
+      fclose(fbin);
+    }
+
+    free(send_counts);
+    free(displs);
+  } else {
+    // Ranks > 0 recebem suas arestas do Rank 0
+    if (my_edges > 0) {
+      edges_to_process = malloc(sizeof(edge_t) * my_edges);
+      if (!edges_to_process) {
+        logging(RANK, ERROR, "Falha na alocacao de memoria para as arestas locais (%u arestas)", my_edges);
+        io_success = 0;
+      } else {
+        logging(RANK, RECV, "Aguardando recebimento de %u arestas do Rank 0", my_edges);
+        MPI_Recv(edges_to_process, my_edges, MPI_EDGE_T, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        logging(RANK, RECV, "Recebidas %u arestas do Rank 0 com sucesso", my_edges);
+      }
+    }
+  }
+
+  // Verifica globalmente se todos os passos de I/O e alocacao deram certo
+  int global_io_success = 0;
+  MPI_Allreduce(&io_success, &global_io_success, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
+  if (!global_io_success) {
+    if (edges_to_process) {
+      free(edges_to_process);
+    }
     MPI_Finalize();
     return 1;
   }
 
-  MPI_Offset file_offset = (MPI_Offset)start_idx * sizeof(edge_t);
-  MPI_Status read_status;
-
-  logging(RANK, INFO, "Iniciando MPI_File_read_at_all com offset %lld para %u arestas", (long long)file_offset, my_edges);
-  mpi_err = MPI_File_read_at_all(fh, file_offset, edges_to_process, my_edges,
-                                 MPI_EDGE_T, &read_status);
-  if (mpi_err != MPI_SUCCESS) {
-    logging(RANK, ERROR, "Falha ao ler o arquivo usando MPI_File_read_at_all");
-    if (RANK == 0) {
-      print_error("Erro de MPI_File_read", "Falha ao ler o arquivo usando MPI_File_read_at_all", NULL, -1);
-    }
-    free(edges_to_process);
-    MPI_File_close(&fh);
-    MPI_Finalize();
-    return 1;
-  }
-
-  MPI_File_close(&fh);
-  logging(RANK, INFO, "Leitura paralela concluida e arquivo fechado com sucesso.");
+  logging(RANK, INFO, "Leitura e distribuicao de dados concluida com sucesso.");
 
   logging(RANK, INFO, "Ordenando as arestas locais (%u itens) usando qsort", my_edges);
   if (edges_to_process != NULL) {
