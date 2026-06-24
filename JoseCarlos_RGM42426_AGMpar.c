@@ -196,12 +196,16 @@ int main( int argc, char **argv ) {
     component_t *components_global;
     component_t *components_local;
 
-    // MST final: alocado fora do loop para sobreviver entre lotes
+    // Candidatos da MST: acumula arestas de todos os lotes (ROOT aloca grande)
+    // Cada lote pode contribuir ate V-1 arestas. Numero de lotes = edges_len / (SIZE * _10M).
+    // Maximo teorico: num_lotes * (V-1), mas na pratica muito menos.
     edge_t *E_line = NULL;
     size_t m = 0;
     size_t components_len = 0;
+    uint32_t num_lotes = edges_len / ( (uint32_t)SIZE * _10M );
+    size_t e_line_capacity = (size_t)num_lotes * ( vertex_len - 1 );
 
-    logging( RANK, INFO, "Estruturas e metadados iniciais definidos." );
+    logging( RANK, INFO, "Estruturas e metadados iniciais definidos. Lotes previstos: %u", num_lotes );
 
     //=========================================================================
     //===               INICIALIZAÇÃO COMPONENTES GLOBAIS                   ===
@@ -235,11 +239,11 @@ int main( int argc, char **argv ) {
     }
     edges_to_process_len = _10M;
 
-    // MST final (apenas ROOT armazena as arestas escolhidas)
+    // Candidatos da MST (apenas ROOT armazena as arestas candidatas de cada lote)
     if ( ROOT ) {
-        E_line = malloc( sizeof( edge_t ) * ( vertex_len - 1 ) );
+        E_line = malloc( sizeof( edge_t ) * e_line_capacity );
         if ( E_line == NULL ) {
-            logging( RANK, ERROR, "Erro ao alocar memoria para E_line (MST)" );
+            logging( RANK, ERROR, "Erro ao alocar memoria para E_line (candidatos MST)" );
             free( components_global );
             free( components_local );
             free( edges_to_process );
@@ -248,18 +252,13 @@ int main( int argc, char **argv ) {
         }
     }
 
-    // Inicializar todos os componentes: cada vertice e seu proprio componente
-    for ( size_t i = 0; i < vertex_len; ++i ) {
-        components_global[i]._id = i;
-        RESET_EDGE( components_global[i].best_edge );
-        components_local[i]._id = i;
-        RESET_EDGE( components_local[i].best_edge );
-    }
-    components_len = vertex_len;
-    logging( RANK, INFO, "Componentes globais e locais inicializados." );
+    logging( RANK, INFO, "Componentes e buffers alocados." );
 
     //=========================================================================
-    //===             LOOP LEITURA | ENVIO | PROCESSAMENTO                  ===
+    //===             FASE 1: BORŮVKA INDEPENDENTE POR LOTE                 ===
+    //===   Cada lote roda Borůvka com Union-Find fresco, coletando        ===
+    //===   arestas candidatas em E_line. Pela propriedade do corte,       ===
+    //===   MST(G) = MST( ∪ MST(Eᵢ) ).                                    ===
     //=========================================================================
     MPI_File f_in;
 
@@ -283,92 +282,71 @@ int main( int argc, char **argv ) {
     gettimeofday( &t_io_sort, NULL );
 
     while ( processed_edges < edges_len ) {
-        logging( RANK, INFO, "Iniciando processamento do lote. Arestas processadas: %u / %u", processed_edges,
-                 edges_len );
+        logging( RANK, INFO, "[FASE 1] Iniciando lote. Arestas processadas: %u / %u", processed_edges, edges_len );
 
         // --------------------------LEITURA E ENVIO-------------------------//
         if ( ROOT ) {
-            // Buffer temporario para leitura — reutilizado a cada rank destino
             edge_t *send_buffer = (edge_t *)malloc( sizeof( edge_t ) * _10M );
             test( send_buffer );
 
             for ( int i = 0; i < SIZE; i++ ) {
-                // Lê _10M arestas para o buffer (sobrescreve o anterior)
                 MPI_File_read( f_in, send_buffer, _10M, MPI_EDGE_T, MPI_STATUS_IGNORE );
                 logging( RANK, INFO, "Lendo bloco de arestas no Rank 0 para o Rank %d.", i );
 
                 if ( i == 0 ) {
-                    // Copia para o próprio buffer de processamento do Rank 0
                     memcpy( edges_to_process, send_buffer, sizeof( edge_t ) * _10M );
-                    logging( RANK, INFO, "Arestas locais copiadas no Rank 0." );
                 } else {
                     MPI_Send( send_buffer, _10M, MPI_EDGE_T, i, 0, MPI_COMM_WORLD );
-                    logging( RANK, SEND, "Enviando lote de arestas para o Rank %d.", i );
                 }
             }
 
             free( send_buffer );
-            logging( RANK, INFO, "Leitura e distribuicao de dados concluida no Rank 0." );
         } else {
             MPI_Recv( edges_to_process, _10M, MPI_EDGE_T, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
-            logging( RANK, RECV, "Lote de arestas recebido do Rank 0." );
         }
 
-        // Todos os ranks atualizam o progresso
         processed_edges += (uint32_t)SIZE * _10M;
-        logging( RANK, INFO, "Progresso atualizado: %u / %u arestas processadas.", processed_edges, edges_len );
 
-        // --------------------------AGM (POR LOTE)------------------------//
+        // ---------- BORŮVKA INDEPENDENTE PARA ESTE LOTE ----------//
+        // Resetar Union-Find: cada lote começa com todos os vertices como singletons
+        for ( size_t i = 0; i < vertex_len; ++i ) {
+            components_local[i]._id = i;
+            RESET_EDGE( components_local[i].best_edge );
+        }
+        components_len = vertex_len;
+
         bool done = false;
-
         while ( !done ) {
-            logging( RANK, INFO, "Iniciando iteracao local. Componentes restantes: %zu", components_len );
-
-            // 2.1 - RESETAR O ESTADO DAS MELHORES ARESTAS DE CADA COMPONENTE LOCAL
+            // 1 - Resetar melhores arestas
             for ( size_t i = 0; i < vertex_len; ++i ) {
                 RESET_EDGE( components_local[i].best_edge );
             }
-            logging( RANK, INFO, "Estado das melhores arestas locais resetado." );
 
-            // 2.2 - BUSCA LOCAL (CADA PROCESSO PROCURA NAS SUAS ARESTAS DESIGNADAS)
-            uint64_t edges_evaluated = 0;
-            uint64_t cross_edges_found = 0;
+            // 2 - Busca local
             for ( size_t i = 0; i < edges_to_process_len; ++i ) {
                 uint32_t u = edges_to_process[i].src;
                 uint32_t v = edges_to_process[i].dst;
                 double w = edges_to_process[i].w;
 
-                edges_evaluated++;
-                // Obtém as raízes atuais dos componentes
                 uint32_t raiz_u = find_component( u, components_local );
                 uint32_t raiz_v = find_component( v, components_local );
 
-                // Apenas consideramos arestas que conectam componentes diferentes
                 if ( raiz_u != raiz_v ) {
-                    cross_edges_found++;
-                    // Atualiza a melhor aresta para o componente de u
                     if ( components_local[raiz_u].best_edge.src == INF32 || components_local[raiz_u].best_edge.w > w ) {
                         components_local[raiz_u].best_edge = edges_to_process[i];
                     }
-                    // Atualiza a melhor aresta para o componente de v
                     if ( components_local[raiz_v].best_edge.src == INF32 || components_local[raiz_v].best_edge.w > w ) {
                         components_local[raiz_v].best_edge = edges_to_process[i];
                     }
                 }
             }
 
-            logging( RANK, INFO, "Busca local concluida: %lu arestas avaliadas, %lu de fronteira encontradas.",
-                     edges_evaluated, cross_edges_found );
-
+            // 3 - Allreduce: consolidar melhores arestas globalmente
             MPI_Allreduce( components_local, components_global, vertex_len, MPI_COMPONENT_T, MPI_BEST_EDGE_OP,
                            MPI_COMM_WORLD );
-            logging( RANK, INFO, "MPI_Allreduce para consolidar as melhores arestas concluido." );
 
-            // 2.3 - SINCRONIZAÇÃO E FUSÃO (UNIÃO DOS COMPONENTES)
-            bool arestas_adicionadas_nesta_rodada = false;
-            uint32_t merges_performed = 0;
-
-            logging( RANK, INFO, "Iniciando fusao de componentes e merge." );
+            // 4 - Fusão de componentes e coleta de candidatos
+            bool arestas_adicionadas = false;
             for ( size_t i = 0; i < vertex_len; ++i ) {
                 if ( components_global[i].best_edge.src != INF32 ) {
                     edge_t escolhida = components_global[i].best_edge;
@@ -376,33 +354,150 @@ int main( int argc, char **argv ) {
                     uint32_t raiz_v = find_component( escolhida.dst, components_local );
 
                     if ( raiz_u != raiz_v ) {
-                        merges_performed++;
-                        // Rank 0 armazena a aresta na MST final
+                        // ROOT coleta a aresta candidata
                         if ( ROOT ) {
                             E_line[m++] = escolhida;
                         }
-
-                        // Merge dos componentes
                         components_local[raiz_u]._id = raiz_v;
                         components_len--;
-                        arestas_adicionadas_nesta_rodada = true;
+                        arestas_adicionadas = true;
                     }
                 }
             }
-            logging( RANK, INFO, "Rodada de fusao concluida: %u fusoes realizadas, componentes restantes: %zu",
-                     merges_performed, components_len );
 
-            // 2.4 - CHECAGEM DE PARADA
-            if ( !arestas_adicionadas_nesta_rodada || components_len == 1 ) {
+            // 5 - Parada
+            if ( !arestas_adicionadas || components_len == 1 ) {
                 done = true;
-                logging( RANK, INFO, "Criterio de parada atendido: arestas_adicionadas=%d, componentes_restantes=%zu",
-                         arestas_adicionadas_nesta_rodada, components_len );
             }
         }
-        logging( RANK, INFO, "AGM para o lote de arestas atual concluida." );
+        logging( RANK, INFO, "[FASE 1] Lote concluido. Candidatos acumulados: %zu", m );
     }
     MPI_File_close( &f_in );
-    logging( RANK, INFO, "Processamento de todas as arestas concluido com sucesso. MST possui %zu arestas.", m );
+    logging( RANK, INFO, "[FASE 1] Concluida. Total de arestas candidatas coletadas: %zu", m );
+
+    //=========================================================================
+    //===        FASE 2: BORŮVKA FINAL SOBRE ARESTAS CANDIDATAS             ===
+    //===   Broadcast de E_line para todos, distribuir entre ranks,         ===
+    //===   rodar Borůvka final para obter a MST verdadeira.                ===
+    //=========================================================================
+    // Broadcast do numero de candidatos
+    MPI_Bcast( &m, sizeof( size_t ), MPI_BYTE, 0, MPI_COMM_WORLD );
+
+    // Non-ROOT aloca E_line para receber os candidatos
+    if ( !ROOT ) {
+        E_line = malloc( sizeof( edge_t ) * m );
+        test( E_line );
+    }
+
+    // Broadcast de todos os candidatos
+    // MPI_Bcast tem limite de INT_MAX no count, entao dividimos se necessario
+    {
+        size_t enviados = 0;
+        while ( enviados < m ) {
+            int chunk = ( m - enviados > (size_t)INT32_MAX ) ? INT32_MAX : (int)( m - enviados );
+            MPI_Bcast( &E_line[enviados], chunk, MPI_EDGE_T, 0, MPI_COMM_WORLD );
+            enviados += chunk;
+        }
+    }
+    logging( RANK, INFO, "[FASE 2] E_line recebido. %zu candidatos em todos os ranks.", m );
+
+    // Distribuir candidatos entre ranks
+    size_t per_rank = m / SIZE;
+    size_t my_start = (size_t)RANK * per_rank;
+    size_t my_end = ( RANK == SIZE - 1 ) ? m : my_start + per_rank;
+    size_t my_edges_count = my_end - my_start;
+
+    logging( RANK, INFO, "[FASE 2] Rank %d processara candidatos [%zu, %zu) (%zu arestas)", RANK, my_start, my_end,
+             my_edges_count );
+
+    // Resetar Union-Find para a fase final
+    for ( size_t i = 0; i < vertex_len; ++i ) {
+        components_local[i]._id = i;
+        RESET_EDGE( components_local[i].best_edge );
+    }
+    components_len = vertex_len;
+
+    // Arestas da MST final (ROOT)
+    edge_t *mst_final = NULL;
+    size_t mst_count = 0;
+    if ( ROOT ) {
+        mst_final = malloc( sizeof( edge_t ) * ( vertex_len - 1 ) );
+        test( mst_final );
+    }
+
+    {
+        bool done = false;
+        int iteracao = 0;
+        while ( !done ) {
+            iteracao++;
+            logging( RANK, INFO, "[FASE 2] Iteracao %d. Componentes restantes: %zu", iteracao, components_len );
+
+            // 1 - Resetar melhores arestas
+            for ( size_t i = 0; i < vertex_len; ++i ) {
+                RESET_EDGE( components_local[i].best_edge );
+            }
+
+            // 2 - Busca local (cada rank processa seu pedaco de E_line)
+            for ( size_t i = my_start; i < my_end; ++i ) {
+                uint32_t u = E_line[i].src;
+                uint32_t v = E_line[i].dst;
+                double w = E_line[i].w;
+
+                uint32_t raiz_u = find_component( u, components_local );
+                uint32_t raiz_v = find_component( v, components_local );
+
+                if ( raiz_u != raiz_v ) {
+                    if ( components_local[raiz_u].best_edge.src == INF32 ||
+                         components_local[raiz_u].best_edge.w > w ) {
+                        components_local[raiz_u].best_edge = E_line[i];
+                    }
+                    if ( components_local[raiz_v].best_edge.src == INF32 ||
+                         components_local[raiz_v].best_edge.w > w ) {
+                        components_local[raiz_v].best_edge = E_line[i];
+                    }
+                }
+            }
+
+            // 3 - Allreduce
+            MPI_Allreduce( components_local, components_global, vertex_len, MPI_COMPONENT_T, MPI_BEST_EDGE_OP,
+                           MPI_COMM_WORLD );
+
+            // 4 - Fusão
+            bool arestas_adicionadas = false;
+            for ( size_t i = 0; i < vertex_len; ++i ) {
+                if ( components_global[i].best_edge.src != INF32 ) {
+                    edge_t escolhida = components_global[i].best_edge;
+                    uint32_t raiz_u = find_component( escolhida.src, components_local );
+                    uint32_t raiz_v = find_component( escolhida.dst, components_local );
+
+                    if ( raiz_u != raiz_v ) {
+                        if ( ROOT ) {
+                            mst_final[mst_count++] = escolhida;
+                        }
+                        components_local[raiz_u]._id = raiz_v;
+                        components_len--;
+                        arestas_adicionadas = true;
+                    }
+                }
+            }
+
+            // 5 - Parada
+            if ( !arestas_adicionadas || components_len == 1 ) {
+                done = true;
+            }
+        }
+    }
+    logging( RANK, INFO, "[FASE 2] Concluida. MST final possui %zu arestas.", mst_count );
+
+    // Substituir E_line pelo resultado final para a apresentacao
+    if ( ROOT ) {
+        free( E_line );
+        E_line = mst_final;
+        m = mst_count;
+    } else {
+        free( E_line );
+        E_line = NULL;
+    }
 
     // Captura o término do loop de processamento
     gettimeofday( &t_loop, NULL );
