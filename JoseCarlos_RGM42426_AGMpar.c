@@ -1,3 +1,4 @@
+// 75117.848736822314
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -260,23 +261,13 @@ int main( int argc, char **argv ) {
     //===   arestas candidatas em E_line. Pela propriedade do corte,       ===
     //===   MST(G) = MST( ∪ MST(Eᵢ) ).                                    ===
     //=========================================================================
-    MPI_File f_in;
+    FILE *f_in = NULL;
 
-    // Broadcast do caminho do arquivo de entrada para todos os ranks
-    int path_len = 0;
     if ( ROOT ) {
-        path_len = strlen( input_path ) + 1;
+        f_in = fopen( input_path, "rb" );
+        test( f_in != NULL );
+        logging( RANK, INFO, "Arquivo de entrada aberto com sucesso." );
     }
-    MPI_Bcast( &path_len, 1, MPI_INT, 0, MPI_COMM_WORLD );
-    if ( !ROOT ) {
-        input_path = malloc( path_len );
-    }
-    MPI_Bcast( input_path, path_len, MPI_CHAR, 0, MPI_COMM_WORLD );
-
-    // MPI_File_open é coletivo: TODOS os ranks devem chamar
-    int open_ret = MPI_File_open( MPI_COMM_WORLD, input_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &f_in );
-    test( open_ret == MPI_SUCCESS );
-    logging( RANK, INFO, "Arquivo de entrada aberto com sucesso." );
 
     // Captura o término da fase de I/O e início do processamento
     gettimeofday( &t_io_sort, NULL );
@@ -290,7 +281,8 @@ int main( int argc, char **argv ) {
             test( send_buffer );
 
             for ( int i = 0; i < SIZE; i++ ) {
-                MPI_File_read( f_in, send_buffer, _10M, MPI_EDGE_T, MPI_STATUS_IGNORE );
+                size_t read_bytes = fread( send_buffer, sizeof( edge_t ), _10M, f_in );
+                (void)read_bytes;
                 logging( RANK, INFO, "Lendo bloco de arestas no Rank 0 para o Rank %d.", i );
 
                 if ( i == 0 ) {
@@ -372,7 +364,9 @@ int main( int argc, char **argv ) {
         }
         logging( RANK, INFO, "[FASE 1] Lote concluido. Candidatos acumulados: %zu", m );
     }
-    MPI_File_close( &f_in );
+    if ( ROOT ) {
+        fclose( f_in );
+    }
     logging( RANK, INFO, "[FASE 1] Concluida. Total de arestas candidatas coletadas: %zu", m );
 
     //=========================================================================
@@ -571,7 +565,26 @@ int main( int argc, char **argv ) {
             print_success( NULL, "Arvore Geradora Minima (MST) calculada com sucesso!" );
         } else {
             // verbosity == 0 (quiet mode)
-            printf( "MST: arestas=%zu, peso=%.9f, tempo=%.6fs\n", m, peso_total, time_total );
+            printf( "MST: arestas=%zu, peso=%.15f, tempo=%.6fs\n", m, peso_total, time_total );
+        }
+
+        if ( output_path ) {
+            MPI_File f_out;
+            int open_ret =
+                MPI_File_open( MPI_COMM_SELF, output_path, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &f_out );
+            if ( open_ret == MPI_SUCCESS ) {
+                MPI_File_set_size( f_out, 0 ); // Trunca o arquivo
+                for ( size_t i = 0; i < m; ++i ) {
+                    char buffer[256];
+                    int len =
+                        snprintf( buffer, sizeof( buffer ), "%u %u %.16f\n", E_line[i].src, E_line[i].dst, E_line[i].w );
+                    MPI_File_write( f_out, buffer, len, MPI_CHAR, MPI_STATUS_IGNORE );
+                }
+                MPI_File_close( &f_out );
+                logging( RANK, INFO, "MST gravada com sucesso em %s", output_path );
+            } else {
+                logging( RANK, ERROR, "Falha ao abrir %s para gravacao", output_path );
+            }
         }
     }// //=========================================================================
 // //===                     APRESENTAÇÃO DE RESULTADOS                    ===
