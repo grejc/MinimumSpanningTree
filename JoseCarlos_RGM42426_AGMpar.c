@@ -261,11 +261,11 @@ int main( int argc, char **argv ) {
     //===   arestas candidatas em E_line. Pela propriedade do corte,       ===
     //===   MST(G) = MST( ∪ MST(Eᵢ) ).                                    ===
     //=========================================================================
-    FILE *f_in = NULL;
+    MPI_File f_in;
 
     if ( ROOT ) {
-        f_in = fopen( input_path, "rb" );
-        test( f_in != NULL );
+        int open_ret = MPI_File_open( MPI_COMM_SELF, input_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &f_in );
+        test( open_ret == MPI_SUCCESS );
         logging( RANK, INFO, "Arquivo de entrada aberto com sucesso." );
     }
 
@@ -281,8 +281,8 @@ int main( int argc, char **argv ) {
             test( send_buffer );
 
             for ( int i = 0; i < SIZE; i++ ) {
-                size_t read_bytes = fread( send_buffer, sizeof( edge_t ), _10M, f_in );
-                (void)read_bytes;
+                MPI_Status status;
+                MPI_File_read( f_in, send_buffer, _10M, MPI_EDGE_T, &status );
 
                 if ( i == 0 ) {
                     memcpy( edges_to_process, send_buffer, sizeof( edge_t ) * _10M );
@@ -364,7 +364,7 @@ int main( int argc, char **argv ) {
         logging( RANK, INFO, "Lote concluido. Candidatos acumulados: %zu", m );
     }
     if ( ROOT ) {
-        fclose( f_in );
+        MPI_File_close( &f_in );
     }
     logging( RANK, INFO, "Concluida. Total de arestas candidatas coletadas: %zu", m );
 
