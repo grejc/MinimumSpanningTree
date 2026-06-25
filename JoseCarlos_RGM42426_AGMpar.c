@@ -409,12 +409,10 @@ int main( int argc, char **argv ) {
                 uint32_t raiz_v = find_component( v, components_local );
 
                 if ( raiz_u != raiz_v ) {
-                    if ( components_local[raiz_u].best_edge.src == INF32 ||
-                         components_local[raiz_u].best_edge.w > w ) {
+                    if ( components_local[raiz_u].best_edge.src == INF32 || components_local[raiz_u].best_edge.w > w ) {
                         components_local[raiz_u].best_edge = E_line[i];
                     }
-                    if ( components_local[raiz_v].best_edge.src == INF32 ||
-                         components_local[raiz_v].best_edge.w > w ) {
+                    if ( components_local[raiz_v].best_edge.src == INF32 || components_local[raiz_v].best_edge.w > w ) {
                         components_local[raiz_v].best_edge = E_line[i];
                     }
                 }
@@ -494,8 +492,8 @@ int main( int argc, char **argv ) {
             print_box_double( "ARVORE GERADORA MINIMA (MST) ENCONTRADA", TERMINAL_COLOR_GREEN );
 
             char info_text[512];
-            snprintf( info_text, sizeof( info_text ),
-                      "QUANTIDADE DE ARESTAS NA MST: %zu  |  PESO TOTAL DA MST: %.9f", m, peso_total );
+            snprintf( info_text, sizeof( info_text ), "QUANTIDADE DE ARESTAS NA MST: %zu  |  PESO TOTAL DA MST: %.9f",
+                      m, peso_total );
             print_box( info_text, TERMINAL_COLOR_CYAN );
 
             // Tabela de arestas (se o grafo for pequeno)
@@ -525,8 +523,8 @@ int main( int argc, char **argv ) {
                     if ( i > 0 ) {
                         printf( " %s\u2192%s ", TERMINAL_COLOR_YELLOW, TERMINAL_COLOR_RESET );
                     }
-                    printf( "%u %s(%.2f)%s %u", E_line[i].src, TERMINAL_COLOR_GREEN, E_line[i].w,
-                            TERMINAL_COLOR_RESET, E_line[i].dst );
+                    printf( "%u %s(%.2f)%s %u", E_line[i].src, TERMINAL_COLOR_GREEN, E_line[i].w, TERMINAL_COLOR_RESET,
+                            E_line[i].dst );
                 }
                 printf( "\n\n" );
             }
@@ -576,8 +574,8 @@ int main( int argc, char **argv ) {
                 MPI_File_set_size( f_out, 0 ); // Trunca o arquivo
                 for ( size_t i = 0; i < m; ++i ) {
                     char buffer[256];
-                    int len =
-                        snprintf( buffer, sizeof( buffer ), "%u %u %.16f\n", E_line[i].src, E_line[i].dst, E_line[i].w );
+                    int len = snprintf( buffer, sizeof( buffer ), "%u %.12f %u\n", E_line[i].src, E_line[i].w,
+                                        E_line[i].dst );
                     MPI_File_write( f_out, buffer, len, MPI_CHAR, MPI_STATUS_IGNORE );
                 }
                 MPI_File_close( &f_out );
@@ -586,124 +584,124 @@ int main( int argc, char **argv ) {
                 logging( RANK, ERROR, "Falha ao abrir %s para gravacao", output_path );
             }
         }
-    }// //=========================================================================
-// //===                     APRESENTAÇÃO DE RESULTADOS                    ===
-// //=========================================================================
-// // Cálculo de tempos decorridos
-// double time_lb = get_elapsed( t_start, t_meta_lb );
-// double time_io = get_elapsed( t_meta_lb, t_io_sort );
-// double time_process = get_elapsed( t_io_sort, t_loop );
-// double time_total = get_elapsed( t_start, t_end );
+    } // //=========================================================================
+    // //===                     APRESENTAÇÃO DE RESULTADOS                    ===
+    // //=========================================================================
+    // // Cálculo de tempos decorridos
+    // double time_lb = get_elapsed( t_start, t_meta_lb );
+    // double time_io = get_elapsed( t_meta_lb, t_io_sort );
+    // double time_process = get_elapsed( t_io_sort, t_loop );
+    // double time_total = get_elapsed( t_start, t_end );
 
-// logging( RANK, INFO,
-//          "Tempos de execucao: Setup=%f s, I/O/Ordenacao=%f s, "
-//          "Processamento=%f s, Total=%f s",
-//          time_lb, time_io, time_process, time_total );
+    // logging( RANK, INFO,
+    //          "Tempos de execucao: Setup=%f s, I/O/Ordenacao=%f s, "
+    //          "Processamento=%f s, Total=%f s",
+    //          time_lb, time_io, time_process, time_total );
 
-// // Redução dos tempos para exibir mínimo e máximo entre os ranks
-// double max_time_lb = 0.0, min_time_lb = 0.0;
-// double max_time_io = 0.0, min_time_io = 0.0;
-// double max_time_process = 0.0, min_time_process = 0.0;
+    // // Redução dos tempos para exibir mínimo e máximo entre os ranks
+    // double max_time_lb = 0.0, min_time_lb = 0.0;
+    // double max_time_io = 0.0, min_time_io = 0.0;
+    // double max_time_process = 0.0, min_time_process = 0.0;
 
-// MPI_Reduce( &time_lb, &max_time_lb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
-// MPI_Reduce( &time_lb, &min_time_lb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_lb, &max_time_lb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_lb, &min_time_lb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
 
-// MPI_Reduce( &time_io, &max_time_io, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
-// MPI_Reduce( &time_io, &min_time_io, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_io, &max_time_io, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_io, &min_time_io, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
 
-// MPI_Reduce( &time_process, &max_time_process, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
-// MPI_Reduce( &time_process, &min_time_process, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_process, &max_time_process, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD );
+    // MPI_Reduce( &time_process, &min_time_process, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD );
 
-// // Apresentação de saídas dependente da verbosidade no terminal do Rank 0
-// if ( ROOT ) {
-//     if ( verbosity >= 1 ) {
-//         print_box_double( "ARVORE GERADORA MINIMA (MST) ENCONTRADA", TERMINAL_COLOR_GREEN );
+    // // Apresentação de saídas dependente da verbosidade no terminal do Rank 0
+    // if ( ROOT ) {
+    //     if ( verbosity >= 1 ) {
+    //         print_box_double( "ARVORE GERADORA MINIMA (MST) ENCONTRADA", TERMINAL_COLOR_GREEN );
 
-//         char info_text[512];
-//         snprintf( info_text, sizeof( info_text ), "QUANTIDADE DE ARESTAS NA MST: %d  |  PESO TOTAL DA MST: %.9f",
-//                   mst_quantidade_arestas, peso_total );
-//         print_box( info_text, TERMINAL_COLOR_CYAN );
+    //         char info_text[512];
+    //         snprintf( info_text, sizeof( info_text ), "QUANTIDADE DE ARESTAS NA MST: %d  |  PESO TOTAL DA MST: %.9f",
+    //                   mst_quantidade_arestas, peso_total );
+    //         print_box( info_text, TERMINAL_COLOR_CYAN );
 
-//         // Tabela de arestas (se o grafo for pequeno)
-//         if ( vertex_len < 100 && mst_arestas ) {
-//             TableStyle ts;
-//             table_init( &ts, 3, TERMINAL_COLOR_CYAN, TERMINAL_COLOR_WHITE, TERMINAL_COLOR_GREEN );
-//             table_set_col_width( &ts, 0, 15 );
-//             table_set_col_width( &ts, 1, 15 );
-//             table_set_col_width( &ts, 2, 15 );
+    //         // Tabela de arestas (se o grafo for pequeno)
+    //         if ( vertex_len < 100 && mst_arestas ) {
+    //             TableStyle ts;
+    //             table_init( &ts, 3, TERMINAL_COLOR_CYAN, TERMINAL_COLOR_WHITE, TERMINAL_COLOR_GREEN );
+    //             table_set_col_width( &ts, 0, 15 );
+    //             table_set_col_width( &ts, 1, 15 );
+    //             table_set_col_width( &ts, 2, 15 );
 
-//             const char *headers[] = { "Origem (src)", "Peso (w)", "Destino (dst)" };
-//             table_print_header( &ts, headers );
+    //             const char *headers[] = { "Origem (src)", "Peso (w)", "Destino (dst)" };
+    //             table_print_header( &ts, headers );
 
-//             for ( int i = 0; i < mst_quantidade_arestas; ++i ) {
-//                 char src_buf[32], w_buf[32], dst_buf[32];
-//                 snprintf( src_buf, sizeof( src_buf ), "%u", mst_arestas[i].src );
-//                 snprintf( w_buf, sizeof( w_buf ), "%.2f", mst_arestas[i].w );
-//                 snprintf( dst_buf, sizeof( dst_buf ), "%u", mst_arestas[i].dst );
-//                 const char *row[] = { src_buf, w_buf, dst_buf };
-//                 table_print_row( &ts, row );
-//             }
-//             table_print_footer( &ts );
+    //             for ( int i = 0; i < mst_quantidade_arestas; ++i ) {
+    //                 char src_buf[32], w_buf[32], dst_buf[32];
+    //                 snprintf( src_buf, sizeof( src_buf ), "%u", mst_arestas[i].src );
+    //                 snprintf( w_buf, sizeof( w_buf ), "%.2f", mst_arestas[i].w );
+    //                 snprintf( dst_buf, sizeof( dst_buf ), "%u", mst_arestas[i].dst );
+    //                 const char *row[] = { src_buf, w_buf, dst_buf };
+    //                 table_print_row( &ts, row );
+    //             }
+    //             table_print_footer( &ts );
 
-//             // Exibe o caminho da árvore
-//             printf( "Caminho da arvore:\n  " );
-//             for ( int i = 0; i < mst_quantidade_arestas; ++i ) {
-//                 if ( i > 0 ) {
-//                     printf( " %s\u2192%s ", TERMINAL_COLOR_YELLOW, TERMINAL_COLOR_RESET );
-//                 }
-//                 printf( "%u %s(%.2f)%s %u", mst_arestas[i].src, TERMINAL_COLOR_GREEN, mst_arestas[i].w,
-//                         TERMINAL_COLOR_RESET, mst_arestas[i].dst );
-//             }
-//             printf( "\n\n" );
-//         }
+    //             // Exibe o caminho da árvore
+    //             printf( "Caminho da arvore:\n  " );
+    //             for ( int i = 0; i < mst_quantidade_arestas; ++i ) {
+    //                 if ( i > 0 ) {
+    //                     printf( " %s\u2192%s ", TERMINAL_COLOR_YELLOW, TERMINAL_COLOR_RESET );
+    //                 }
+    //                 printf( "%u %s(%.2f)%s %u", mst_arestas[i].src, TERMINAL_COLOR_GREEN, mst_arestas[i].w,
+    //                         TERMINAL_COLOR_RESET, mst_arestas[i].dst );
+    //             }
+    //             printf( "\n\n" );
+    //         }
 
-//         // Tabela de tempos de execução
-//         TableStyle ts_time;
-//         table_init( &ts_time, 4, TERMINAL_COLOR_BLUE, TERMINAL_COLOR_WHITE, TERMINAL_COLOR_CYAN );
-//         table_set_col_width( &ts_time, 0, 30 );
-//         table_set_col_width( &ts_time, 1, 15 );
-//         table_set_col_width( &ts_time, 2, 15 );
-//         table_set_col_width( &ts_time, 3, 15 );
+    //         // Tabela de tempos de execução
+    //         TableStyle ts_time;
+    //         table_init( &ts_time, 4, TERMINAL_COLOR_BLUE, TERMINAL_COLOR_WHITE, TERMINAL_COLOR_CYAN );
+    //         table_set_col_width( &ts_time, 0, 30 );
+    //         table_set_col_width( &ts_time, 1, 15 );
+    //         table_set_col_width( &ts_time, 2, 15 );
+    //         table_set_col_width( &ts_time, 3, 15 );
 
-//         const char *time_headers[] = { "Etapa do Algoritmo", "Rank 0 (s)", "Min Ranks (s)", "Max Ranks (s)" };
-//         table_print_header( &ts_time, time_headers );
+    //         const char *time_headers[] = { "Etapa do Algoritmo", "Rank 0 (s)", "Min Ranks (s)", "Max Ranks (s)" };
+    //         table_print_header( &ts_time, time_headers );
 
-//         char r0_buf[32], min_buf[32], max_buf[32];
+    //         char r0_buf[32], min_buf[32], max_buf[32];
 
-//         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_lb );
-//         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_lb );
-//         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_lb );
-//         const char *row_lb[] = { "1. Setup / Balanc. Carga", r0_buf, min_buf, max_buf };
-//         table_print_row( &ts_time, row_lb );
+    //         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_lb );
+    //         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_lb );
+    //         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_lb );
+    //         const char *row_lb[] = { "1. Setup / Balanc. Carga", r0_buf, min_buf, max_buf };
+    //         table_print_row( &ts_time, row_lb );
 
-//         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_io );
-//         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_io );
-//         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_io );
-//         const char *row_io[] = { "2. Leitura E/S & Ordenacao", r0_buf, min_buf, max_buf };
-//         table_print_row( &ts_time, row_io );
+    //         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_io );
+    //         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_io );
+    //         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_io );
+    //         const char *row_io[] = { "2. Leitura E/S & Ordenacao", r0_buf, min_buf, max_buf };
+    //         table_print_row( &ts_time, row_io );
 
-//         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_process );
-//         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_process );
-//         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_process );
-//         const char *row_proc[] = { "3. Processamento MST", r0_buf, min_buf, max_buf };
-//         table_print_row( &ts_time, row_proc );
+    //         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_process );
+    //         snprintf( min_buf, sizeof( min_buf ), "%.6f", min_time_process );
+    //         snprintf( max_buf, sizeof( max_buf ), "%.6f", max_time_process );
+    //         const char *row_proc[] = { "3. Processamento MST", r0_buf, min_buf, max_buf };
+    //         table_print_row( &ts_time, row_proc );
 
-//         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_total );
-//         const char *row_total[] = { "Total Geral Executado", r0_buf, "-", "-" };
-//         table_print_row( &ts_time, row_total );
+    //         snprintf( r0_buf, sizeof( r0_buf ), "%.6f", time_total );
+    //         const char *row_total[] = { "Total Geral Executado", r0_buf, "-", "-" };
+    //         table_print_row( &ts_time, row_total );
 
-//         table_print_footer( &ts_time );
+    //         table_print_footer( &ts_time );
 
-//         print_success( NULL, "Arvore Geradora Minima (MST) calculada com sucesso!" );
-//     } else {
-//         // verbosity == 0 (quiet mode) - only print final MST details in a single
-//         // plain line to stdout
-//         printf( "MST: arestas=%d, peso=%.9f, tempo=%.6fs\n", mst_quantidade_arestas, peso_total, time_total );
-//     }
+    //         print_success( NULL, "Arvore Geradora Minima (MST) calculada com sucesso!" );
+    //     } else {
+    //         // verbosity == 0 (quiet mode) - only print final MST details in a single
+    //         // plain line to stdout
+    //         printf( "MST: arestas=%d, peso=%.9f, tempo=%.6fs\n", mst_quantidade_arestas, peso_total, time_total );
+    //     }
 
-//     if ( mst_arestas )
-//         free( mst_arestas );
-// }
+    //     if ( mst_arestas )
+    //         free( mst_arestas );
+    // }
 
     // Captura o tempo total de execução final
     gettimeofday( &t_end, NULL );
@@ -729,6 +727,10 @@ int main( int argc, char **argv ) {
     MPI_Type_free( &MPI_EDGE_T );
     MPI_Type_free( &MPI_COMPONENT_T );
     MPI_Type_free( &MPI_MEMINFO_T );
+
+    logging( RANK, INFO, "Liberacao de memoria concluida!" );
+    logging( RANK, INFO, "FINALIZANDO MPI..." );
+    logging( RANK, INFO, "--------------------------------------------------" );
 
     MPI_Finalize();
     return 0;
