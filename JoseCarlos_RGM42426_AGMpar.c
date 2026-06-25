@@ -892,7 +892,7 @@ void logging( int _rank, log_level_t _level, const char *_fmt, ... ) {
         time.tv_usec += 1000000, time.tv_sec--;
 
     char filename[256];
-    snprintf( filename, sizeof( filename ), "./logs/rank%d.txt", _rank );
+    snprintf( filename, sizeof( filename ), "./logs/rank%d.log", _rank );
 
     FILE *fp = fopen( filename, "a+" );
     test( fp );
