@@ -571,12 +571,34 @@ int main( int argc, char **argv ) {
                 MPI_File_open( MPI_COMM_SELF, output_path, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &f_out );
             if ( open_ret == MPI_SUCCESS ) {
                 MPI_File_set_size( f_out, 0 ); // Trunca o arquivo
-                for ( size_t i = 0; i < m; ++i ) {
-                    char buffer[256];
-                    int len = snprintf( buffer, sizeof( buffer ), "%u %.12f %u\n", E_line[i].src, E_line[i].w,
-                                        E_line[i].dst );
-                    MPI_File_write( f_out, buffer, len, MPI_CHAR, MPI_STATUS_IGNORE );
+
+                size_t buf_size = 1024 * 1024 * 8; // Buffer de 8 MB
+                char *out_buffer = malloc( buf_size );
+
+                if ( out_buffer ) {
+                    size_t offset = 0;
+                    for ( size_t i = 0; i < m; ++i ) {
+                        char line[256];
+                        int len = snprintf( line, sizeof( line ), "%u %.12f %u\n", E_line[i].src, E_line[i].w, E_line[i].dst );
+                        if ( offset + len >= buf_size ) {
+                            MPI_File_write( f_out, out_buffer, offset, MPI_CHAR, MPI_STATUS_IGNORE );
+                            offset = 0;
+                        }
+                        memcpy( out_buffer + offset, line, len );
+                        offset += len;
+                    }
+                    if ( offset > 0 ) {
+                        MPI_File_write( f_out, out_buffer, offset, MPI_CHAR, MPI_STATUS_IGNORE );
+                    }
+                    free( out_buffer );
+                } else {
+                    for ( size_t i = 0; i < m; ++i ) {
+                        char buffer[256];
+                        int len = snprintf( buffer, sizeof( buffer ), "%u %.12f %u\n", E_line[i].src, E_line[i].w, E_line[i].dst );
+                        MPI_File_write( f_out, buffer, len, MPI_CHAR, MPI_STATUS_IGNORE );
+                    }
                 }
+
                 MPI_File_close( &f_out );
                 logging( RANK, INFO, "MST gravada com sucesso em %s", output_path );
             } else {
