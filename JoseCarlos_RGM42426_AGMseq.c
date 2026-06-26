@@ -28,6 +28,12 @@ typedef struct component_s {
 } component_t;
 
 uint32_t find_component( uint32_t vertex_id, component_t *components );
+static inline int compare_edges(const void* a, const void* b){
+    edge_t* A = (edge_t*) a;
+    edge_t *B = (edge_t*) b;
+
+    return (A->w > B->w ? -1 : 1);
+}
 
 int main( int argc, char **argv ) {
     struct timeval initial_time, final_time, algorithm_start, algorithm_end;
@@ -169,6 +175,8 @@ int main( int argc, char **argv ) {
 
     fclose( fp );
     gettimeofday( &algorithm_end, NULL );
+
+    qsort(E_line, vertex_len - 1, sizeof(edge_t), compare_edges);
 
     FILE *fp_out = fopen( output_path, "w" );
     if ( fp_out ) {
