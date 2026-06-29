@@ -49,15 +49,11 @@ static int compare_edges( const void *a, const void *b );
 bool preferable_over( const edge_t *new_edge, const edge_t *current );
 
 int main( int argc, char **argv ) {
-    bool _debug;
-    char *input_path = NULL;
+    bool _debug = true;
+    char input_path[256] = "/home/null/college/ProgParalela/Test/graph.bin";
 
     if ( argc == 1 ) {
-        _debug = false;
-        input_path = strdup( "/home/local/rgm42426/graph.bin" );
-    } else {
-        _debug = true;
-        input_path = strdup( "/home/null/college/ProgParalela/Test/graph.bin" );
+        strcpy( input_path, "/home/local/rgm42426/graph.bin" );
     }
 
     if ( _debug )
